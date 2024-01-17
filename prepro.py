@@ -1,16 +1,16 @@
 from PIL import Image
-import numpy as numpy
 import os
-#downsize and upsize images -> split
+from tqdm import tqdm
 
 path = "data/mirflickr"
-for pic in (os.listdir(path)):
-    img_raw = Image.open(path + "/" + pic)
-    hr_img = img_raw.resize((128,128))
-    lr_img = img_raw.resize((32,32))
+os.makedirs(os.path.join("data/high_res"), exist_ok=True)
+os.makedirs(os.path.join("data/low_res"), exist_ok=True)
 
-    hr_img.save(path + "/high_res_imgs", format = "JPEG")
-    lr_img.save(path + "/low_res_imgs", format = "JPEG")
+for pic in tqdm(os.listdir(path)):
+    img_raw = Image.open(os.path.join(path, pic))
+    hr_img = img_raw.resize((128, 128))
+    lr_img = img_raw.resize((32, 32))
 
-    
+    hr_img.save("data/high_res/" + pic, format="JPEG")
+    lr_img.save("data/low_res/" + pic, format="JPEG")
 

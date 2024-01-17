@@ -1,16 +1,6 @@
 import torch
 import torch.nn as nn
-import torchvision.models as models
     
-class VGG():
-    def __init__(self):
-        self.VGG = models.vgg19(pretrained = True)
-        self.VGG.eval()
-    
-    def predict(self, input):
-        return self.VGG(input)
-
-
 #input low res -> #high res
 class Generator(nn.Module):
     def __init__(self,res_layers, up_layers):
@@ -50,19 +40,19 @@ class Generator(nn.Module):
     #disc block
         #conv,batch_norm,leaklu
 class Discriminator(nn.Module):
-    def __init__(self,disc_layers):
-        self.disc_layers = disc_layers
-
+    def __init__(self,layer_outputs = 64,batch_norm = True):
+        self.outputs = layer_outputs
+        self.bn = batch_norm
+        pass
     def discriminator_block(self,x,output,strides = 1, batch_norm=True): # batch_norm on = training
         disc = nn.Conv2d(x.shape[1],output,3, strides,1)(x)
-        if batch_norm:
+        if self.bn:
             disc = nn.BatchNorm2d(output, momentum = 0.8)(disc)
         disc = nn.LeakyReLU(0.2)(disc)
         return disc
     
     def forward(self,x):
-
-        layer_op = 64
+        layer_op = self.outputs
 
         l1 = self.discriminator_block(x,l1,batch_norm=False)
         l2 = self.discriminator_block(l1,layer_op,strides=2)
@@ -72,22 +62,18 @@ class Discriminator(nn.Module):
         l6 = self.discriminator_block(l5,layer_op*4,strides=2)
         l7 = self.discriminator_block(l6,layer_op*8)
         l8 = self.discriminator_block(l7,layer_op*4,strides=2)
-
-        l8 = l8.view(-1)
+        l8 = l8.view(-1) #flatten
         l9 = nn.linear(l8,layer_op*64)
         l10 = nn.LeakyReLU(0.2)(l9)
         l11 = nn.linear(l10,1)
         validity = nn.Sigmoid(l11)
 
         return validity
+    
 
-        
-
-
-
-
-
-        
-
-
-
+#combine the 3 models together
+class GAN(nn.Module):
+    def __init__(self,generator,discriminator,vgg):
+        self.gen = generator
+        self.disc = discriminator
+        self.vgg = vgg
