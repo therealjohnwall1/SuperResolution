@@ -94,11 +94,11 @@ for epoch in range(EPOCHS):
         imgs_lr = Variable(Tensor(lr_train[i]).unsqueeze(0))
         imgs_hr = Variable(Tensor(hr_train[i]).unsqueeze(0))
 
-
         optim_g.zero_grad()
 
         # Generate a high-resolution image
         gen_hr = generator(imgs_lr)
+        discriminator.bn = True
 
         # Adversarial loss
         valid = Variable(Tensor(np.ones((1, *discriminator.output_shape))), requires_grad=False)
@@ -109,20 +109,17 @@ for epoch in range(EPOCHS):
         real_features = feature_extractor(imgs_hr)
         content_loss = criterion_content(gen_features, real_features.detach())
 
-        # Total generator loss
         gen_loss = adversarial_loss + 0.006 * content_loss
+
+        discriminator.bn = False
 
         # Backpropagation
         gen_loss.backward()
         optim_g.step()
 
-        # ----------------------
-        #  Train Discriminator
-        # ----------------------
-
         optim_d.zero_grad()
 
-        # Measure discriminator's ability to classify real and generated samples
+        #get validity
         real_loss = criterion_GAN(discriminator(imgs_hr), valid)
         fake_loss = criterion_GAN(discriminator(gen_hr.detach()), Variable(Tensor(np.zeros((1, *discriminator.output_shape))), requires_grad=False))
         disc_loss = 0.5 * (real_loss + fake_loss)
@@ -139,7 +136,6 @@ for epoch in range(EPOCHS):
     avg_gen_loss = total_gen_loss / len(lr_train)
     avg_disc_loss = total_disc_loss / len(lr_train)
 
-    # Print progress
     print(f"Epoch [{epoch+1}/{EPOCHS}] - Generator Loss: {avg_gen_loss:.4f}, Discriminator Loss: {avg_disc_loss:.4f}")
 
     # Save losses for plotting
