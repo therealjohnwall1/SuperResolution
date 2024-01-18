@@ -83,109 +83,66 @@ Tensor = torch.cuda.FloatTensor if cuda else torch.Tensor
 
 train_gen_losses, train_disc_losses, train_counter = [], [], []
 test_gen_losses, test_disc_losses = [], []
-# test_counter = [idx*len(train_dataloader.dataset) for idx in range(1, EPOCHS+1)]
-
 for epoch in range(EPOCHS):
+    # Training
+    generator.train()
+    discriminator.train()
+    total_gen_loss = 0
+    total_disc_loss = 0
 
-    ### Training
-    gen_loss, disc_loss = 0, 0
-    tqdm_bar = tqdm(train_dataloader, desc=f'Training Epoch {epoch} ', total=int(len(train_dataloader)))
-    for batch_idx, imgs in enumerate(tqdm_bar):
-        generator.train(); discriminator.train()
-        # Configure model input
-        imgs_lr = Variable(imgs["lr"].type(Tensor))
-        imgs_hr = Variable(imgs["hr"].type(Tensor))
-        # Adversarial ground truths
-        valid = Variable(Tensor(np.ones((imgs_lr.size(0), *discriminator.output_shape))), requires_grad=False)
-        fake = Variable(Tensor(np.zeros((imgs_lr.size(0), *discriminator.output_shape))), requires_grad=False)
-        
-        ### Train Generator
+    for i in range(len(lr_train)):
+        imgs_lr = Variable(Tensor(lr_train[i]).unsqueeze(0))
+        imgs_hr = Variable(Tensor(hr_train[i]).unsqueeze(0))
+
+
         optim_g.zero_grad()
-        # Generate a high resolution image from low resolution input
+
+        # Generate a high-resolution image
         gen_hr = generator(imgs_lr)
+
         # Adversarial loss
-        loss_GAN = criterion_GAN(discriminator(gen_hr), valid)
+        valid = Variable(Tensor(np.ones((1, *discriminator.output_shape))), requires_grad=False)
+        adversarial_loss = criterion_GAN(discriminator(gen_hr), valid)
+
         # Content loss
         gen_features = feature_extractor(gen_hr)
         real_features = feature_extractor(imgs_hr)
-        loss_content = criterion_content(gen_features, real_features.detach())
-        # Total loss
-        loss_G = loss_content + 1e-3 * loss_GAN
-        loss_G.backward()
+        content_loss = criterion_content(gen_features, real_features.detach())
+
+        # Total generator loss
+        gen_loss = adversarial_loss + 0.006 * content_loss
+
+        # Backpropagation
+        gen_loss.backward()
         optim_g.step()
 
-        ### Train Discriminator
+        # ----------------------
+        #  Train Discriminator
+        # ----------------------
+
         optim_d.zero_grad()
-        # Loss of real and fake images
-        loss_real = criterion_GAN(discriminator(imgs_hr), valid)
-        loss_fake = criterion_GAN(discriminator(gen_hr.detach()), fake)
-        # Total loss
-        loss_D = (loss_real + loss_fake) / 2
-        loss_D.backward()
+
+        # Measure discriminator's ability to classify real and generated samples
+        real_loss = criterion_GAN(discriminator(imgs_hr), valid)
+        fake_loss = criterion_GAN(discriminator(gen_hr.detach()), Variable(Tensor(np.zeros((1, *discriminator.output_shape))), requires_grad=False))
+        disc_loss = 0.5 * (real_loss + fake_loss)
+
+        # Backpropagation
+        disc_loss.backward()
         optim_d.step()
 
-        gen_loss += loss_G.item()
-        train_gen_losses.append(loss_G.item())
-        disc_loss += loss_D.item()
-        train_disc_losses.append(loss_D.item())
-        train_counter.append(batch_idx*batch_size + imgs_lr.size(0) + epoch*len(train_dataloader.dataset))
-        tqdm_bar.set_postfix(gen_loss=gen_loss/(batch_idx+1), disc_loss=disc_loss/(batch_idx+1))
+        # Accumulate losses
+        total_gen_loss += gen_loss.item()
+        total_disc_loss += disc_loss.item()
 
-    # Testing
-    gen_loss, disc_loss = 0, 0
-    tqdm_bar = tqdm(test_dataloader, desc=f'Testing Epoch {epoch} ', total=int(len(test_dataloader)))
-    for batch_idx, imgs in enumerate(tqdm_bar):
-        generator.eval(); discriminator.eval()
-        # Configure model input
-        imgs_lr = Variable(imgs["lr"].type(Tensor))
-        imgs_hr = Variable(imgs["hr"].type(Tensor))
-        # Adversarial ground truths
-        valid = Variable(Tensor(np.ones((imgs_lr.size(0), *discriminator.output_shape))), requires_grad=False)
-        fake = Variable(Tensor(np.zeros((imgs_lr.size(0), *discriminator.output_shape))), requires_grad=False)
-        
-        ### Eval Generator
-        # Generate a high resolution image from low resolution input
-        gen_hr = generator(imgs_lr)
-        # Adversarial loss
-        loss_GAN = criterion_GAN(discriminator(gen_hr), valid)
-        # Content loss
-        gen_features = feature_extractor(gen_hr)
-        real_features = feature_extractor(imgs_hr)
-        loss_content = criterion_content(gen_features, real_features.detach())
-        # Total loss
-        loss_G = loss_content + 1e-3 * loss_GAN
+    # Calculate average losses
+    avg_gen_loss = total_gen_loss / len(lr_train)
+    avg_disc_loss = total_disc_loss / len(lr_train)
 
-        ### Eval Discriminator
-        # Loss of real and fake images
-        loss_real = criterion_GAN(discriminator(imgs_hr), valid)
-        loss_fake = criterion_GAN(discriminator(gen_hr.detach()), fake)
-        # Total loss
-        loss_D = (loss_real + loss_fake) / 2
+    # Print progress
+    print(f"Epoch [{epoch+1}/{EPOCHS}] - Generator Loss: {avg_gen_loss:.4f}, Discriminator Loss: {avg_disc_loss:.4f}")
 
-        gen_loss += loss_G.item()
-        disc_loss += loss_D.item()
-        tqdm_bar.set_postfix(gen_loss=gen_loss/(batch_idx+1), disc_loss=disc_loss/(batch_idx+1))
-        
-        # Save image grid with upsampled inputs and SRGAN outputs
-        if random.uniform(0,1)<0.1:
-            imgs_lr = nn.functional.interpolate(imgs_lr, scale_factor=4)
-            imgs_hr = make_grid(imgs_hr, nrow=1, normalize=True)
-            gen_hr = make_grid(gen_hr, nrow=1, normalize=True)
-            imgs_lr = make_grid(imgs_lr, nrow=1, normalize=True)
-            img_grid = torch.cat((imgs_hr, imgs_lr, gen_hr), -1)
-            save_image(img_grid, f"images/{batch_idx}.png", normalize=False)
-
-    test_gen_losses.append(gen_loss/len(test_dataloader))
-    test_disc_losses.append(disc_loss/len(test_dataloader))
-    
-    # Save model checkpoints
-    if np.argmin(test_gen_losses) == len(test_gen_losses)-1:
-        torch.save(generator.state_dict(), "saved_models/generator.pth")
-        torch.save(discriminator.state_dict(), "saved_models/discriminator.pth")
-        
-
-
-
-
-
+    # Save losses for plotting
+    train_gen_losses.append(avg_gen_loss)
+    train_disc_losses.append(avg_disc_loss)
 
